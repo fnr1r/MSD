@@ -38,12 +38,28 @@ cat >> "${seapp_temp_file}" << EOF
 user=_app isPrivApp=true name=${app_id} domain=msd_app type=app_data_file levelFrom=all
 EOF
 
-while has_mountpoint "${seapp_file}"; do
-    umount -l "${seapp_file}"
-done
+if [ "$KSU" == true ]; then
+    # Mounting causes race conditions with other modules in KernelSU, so let's
+    # just let OverlayFS handle it.
+    OVLFS_TARGET="${mod_dir}${seapp_file}"
+    mkdir -p "$(dirname "$OVLFS_TARGET")"
+    /system/bin/cp "${seapp_temp_file}" "${OVLFS_TARGET}"
 
-nsenter --mount=/proc/1/ns/mnt -- \
-    mount -o ro,bind "${seapp_temp_file}" "${seapp_file}"
+    # Copy timestamps from original file
+    /system/bin/touch -r "${seapp_file}" "${OVLFS_TARGET}"
+    # Except for ctime :(
+    # Still works tho
+
+    # Not removing that file is fine, since this script runs before overlay is
+    # mounted, therefore we'll be patching the original file.
+else
+    while has_mountpoint "${seapp_file}"; do
+        umount -l "${seapp_file}"
+    done
+
+    nsenter --mount=/proc/1/ns/mnt -- \
+        mount -o ro,bind "${seapp_temp_file}" "${seapp_file}"
+fi
 
 # On some devices, the system time is set too late in the boot process. This,
 # for some reason, causes the package manager service to not update the package
